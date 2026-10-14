@@ -1,5 +1,7 @@
 # Agent Sync Bridge — Claude Code ↔ Codex
 
+[![test](https://github.com/ShuoYang-cs/agent-sync-bridge/actions/workflows/test.yml/badge.svg)](https://github.com/ShuoYang-cs/agent-sync-bridge/actions/workflows/test.yml)
+
 > **English summary.** You keep working in the normal Claude Code and OpenAI Codex chat windows (VS Code extension or CLI). When you say "同步给 Codex" or "sync this to Claude", the agent you are talking to writes a structured summary of the relevant part of the conversation into a local queue. The summary separates confirmed decisions, proposals, implemented work, verified results, unverified assumptions and pending tasks. On your next message to the other agent, a `UserPromptSubmit` hook injects the summary into its context. The receiving agent then acknowledges it with its own restatement. Each message is tracked as PENDING → DELIVERED → ACKNOWLEDGED (or FAILED, retryable). Ordinary chat never creates messages. Everything runs locally: stdlib Python, SQLite, no API keys, no extra model calls.
 
 在 VS Code 里同时使用 Claude Code 和 Codex 时，两个 Agent 只共享代码文件，看不到彼此的对话。这个工具让你继续在原来的聊天窗口里工作；需要时说一句「同步给 Codex」或「同步给 Claude」，指定的那部分讨论就会被整理好交给另一个 Agent，并且可以查到对方是否真正读到、确认过。
@@ -131,7 +133,7 @@ code --install-extension agent-sync-bridge-0.1.0.vsix
 - 还覆盖了：指定主题同步、交接（接收方不会自动开始执行）、普通聊天不建消息、多项目隔离。
 - Claude Code 插件安装（`claude plugin install`）和插件 hook 投递，在隔离的配置目录里验证过。
 
-自动化测试有 31 个 unittest 和一个 VS Code 扩展冒烟测试，目前只在 macOS 上运行过，Linux 尚未验证。
+自动化测试有 31 个 unittest 和一个 VS Code 扩展冒烟测试，CI 在 Linux 和 macOS 上用 Python 3.9 和 3.12 运行。
 
 不能实现、尚未实现的部分：
 
