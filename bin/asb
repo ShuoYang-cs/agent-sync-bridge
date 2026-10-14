@@ -1,0 +1,7 @@
+#!/bin/sh
+# Agent Sync Bridge CLI. Stdlib-only Python; system python3 is enough.
+SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
+PY="${ASB_PYTHON:-/usr/bin/python3}"
+[ -x "$PY" ] || PY="$(command -v python3)"
+exec "$PY" -I -c 'import sys; sys.path.insert(0, sys.argv.pop(1)); from asb.cli import main; sys.exit(main())' "$ROOT" "$@"

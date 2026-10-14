@@ -1,0 +1,15 @@
+{
+  "name": "agent-sync-bridge",
+  "description": "Agent Sync Bridge: selective, acknowledged context sync between Claude Code and OpenAI Codex.",
+  "owner": {
+    "name": "Shuo Yang",
+    "url": "https://github.com/ShuoYang-cs"
+  },
+  "plugins": [
+    {
+      "name": "agent-sync-bridge",
+      "source": ".",
+      "description": "Claude Code side of Agent Sync Bridge (skill + UserPromptSubmit hook). The Codex side is installed with ./install.sh --only cli,codex."
+    }
+  ]
+}

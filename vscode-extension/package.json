@@ -1,0 +1,63 @@
+{
+  "name": "agent-sync-bridge",
+  "displayName": "Agent Sync Bridge",
+  "description": "Status bar, notifications and one-click import for Claude Code ↔ Codex sync messages (local asb queue).",
+  "version": "0.1.0",
+  "publisher": "agent-sync-bridge",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "agentSync.showInbox",
+        "title": "Agent Sync: 查看待接收消息"
+      },
+      {
+        "command": "agentSync.showHistory",
+        "title": "Agent Sync: 查看同步历史"
+      },
+      {
+        "command": "agentSync.importMessage",
+        "title": "Agent Sync: 一键导入消息到目标 Agent"
+      },
+      {
+        "command": "agentSync.retryFailed",
+        "title": "Agent Sync: 重试失败的消息"
+      }
+    ],
+    "configuration": {
+      "title": "Agent Sync Bridge",
+      "properties": {
+        "agentSync.asbPath": {
+          "type": "string",
+          "default": "~/.local/bin/asb",
+          "description": "asb CLI 路径"
+        },
+        "agentSync.pollSeconds": {
+          "type": "number",
+          "default": 5,
+          "minimum": 2,
+          "description": "检查新消息的间隔（秒）"
+        },
+        "agentSync.notify": {
+          "type": "boolean",
+          "default": true,
+          "description": "有新的同步消息时弹出通知"
+        }
+      }
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ShuoYang-cs/agent-sync-bridge"
+  }
+}
