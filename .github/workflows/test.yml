@@ -1,0 +1,31 @@
+name: test
+on: [push, pull_request]
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.9", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        id: py
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Unit and integration tests
+        env:
+          ASB_PYTHON: ${{ steps.py.outputs.python-path }}
+        run: cd tests && python -m unittest -v
+      - name: VS Code extension smoke test
+        env:
+          ASB_PYTHON: ${{ steps.py.outputs.python-path }}
+        run: |
+          export ASB_HOME="$(mktemp -d)" P="$(mktemp -d)"
+          echo '{"title":"smoke","summary":"s","items":[{"type":"PROPOSAL","text":"x"}]}' \
+            | bin/asb send --from claude --to codex --user-command '同步给 Codex' --cwd "$P" >/dev/null
+          node tests/extension_smoke.js "$P"
