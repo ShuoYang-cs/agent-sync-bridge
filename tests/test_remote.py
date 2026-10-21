@@ -15,19 +15,37 @@ from helpers import TempHome, payload
 from asb import remote
 
 
+def remote_lock_busy(dev):
+    old = os.environ.get("ASB_HOME")
+    os.environ["ASB_HOME"] = dev["ASB_HOME"]
+    try:
+        return remote.lock_busy()
+    finally:
+        os.environ["ASB_HOME"] = old
+
+
 class TwoComputers(TempHome):
     def setUp(self):
         super().setUp()
         self.bare = self.home / "mailbox.git"
         subprocess.run(["git", "init", "-q", "--bare", str(self.bare)], check=True)
         subprocess.run(["git", "-C", str(self.bare), "symbolic-ref", "HEAD", "refs/heads/main"], check=True)
-        self.mac = {"ASB_HOME": os.environ["ASB_HOME"], "ASB_SYNC_INLINE": "1"}
+        self.mac = {"ASB_HOME": os.environ["ASB_HOME"], "ASB_SYNC_INLINE": "1", "ASB_PLATFORM": "macos"}
         self.win = {"ASB_HOME": str(self.home / "asb-win"), "ASB_SYNC_INLINE": "1", "ASB_PLATFORM": "windows"}
         # the same project checked out on both computers under different paths
         self.mac_proj = self.home / "mac" / "LiveSub"
         self.win_proj = self.home / "win" / "LiveSub"
         self.mac_proj.mkdir(parents=True)
         self.win_proj.mkdir(parents=True)
+
+    def tearDown(self):
+        # A detached background sync may still hold bridge.db; Windows cannot delete open files.
+        for _ in range(40):
+            try:
+                return super().tearDown()
+            except PermissionError:
+                time.sleep(0.5)
+        super().tearDown()
 
     # -- helpers ---------------------------------------------------------------
     def on(self, dev, *args, cwd=None, **kw):
@@ -256,6 +274,14 @@ class TwoComputers(TempHome):
         data = json.dumps({"prompt": "继续", "cwd": str(self.win_proj), "session_id": "bg"})
         r = self.asb("hook", "claude", stdin=data, env=win, cwd=self.win_proj)
         self.assertIn(m["id"], json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"])
+        for _ in range(60):  # a second detached process pushes the DELIVERED receipt
+            st = json.loads(self.asb("remote", "status", "--json", env=win).stdout)
+            if st["pending_push"] == 0 and not remote_lock_busy(win):
+                break
+            time.sleep(0.5)
+        self.assertEqual(st["pending_push"], 0)
+        self.on(self.mac, "remote", "sync")
+        self.assertEqual(self.status(self.mac, m["id"])["status"], "DELIVERED")
 
     def test_offline_hook_waits_briefly_then_backs_off(self):
         self.pair()

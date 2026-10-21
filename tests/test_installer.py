@@ -76,7 +76,7 @@ class PluginPackage(unittest.TestCase):
     def test_plugin_skill_matches_template(self):
         sys.path.insert(0, str(REPO / "scripts"))
         import installer
-        rendered = installer.render_skill("claude", installer.PLUGIN_ASB)
+        rendered = installer.render_skill("claude", installer.PLUGIN_ASB, "posix")  # the plugin ships one skill
         self.assertEqual((REPO / "skills/agent-sync/SKILL.md").read_text(encoding="utf-8"), rendered,
                          "run: python3 scripts/installer.py render-plugin")
         self.assertIn("${CLAUDE_PLUGIN_ROOT}/bin/asb send --from claude --to codex", rendered)
