@@ -10,6 +10,8 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 ASB = str(REPO / "bin" / "asb")
+# Windows has no sh: start the shared entry point directly (what asb.cmd does).
+ASB_CMD = [ASB] if os.name != "nt" else [sys.executable, "-X", "utf8", "-I", str(REPO / "bin" / "asb.py")]
 
 
 def payload(**over):
@@ -47,7 +49,7 @@ class TempHome(unittest.TestCase):
     def asb(self, *args, stdin=None, cwd=None, env=None, check=True):
         e = dict(os.environ, **(env or {}))
         e.pop("CLAUDE_CODE_SESSION_ID", None)
-        r = subprocess.run([ASB, *args], input=stdin, capture_output=True, text=True,
+        r = subprocess.run([*ASB_CMD, *args], input=stdin, capture_output=True, text=True, encoding="utf-8",
                            cwd=str(cwd or self.proj_a), env=e)
         if check and r.returncode != 0:
             raise AssertionError(f"asb {args} failed ({r.returncode}): {r.stdout}\n{r.stderr}")

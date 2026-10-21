@@ -1,0 +1,16 @@
+{
+  "title": "Comment Collector 架构定稿",
+  "summary": "两三句话：讨论了什么、结论是什么、对方需要据此做什么。",
+  "scope": {"topic": "Bilibili Comment Collector", "included": "本会话中关于分页和重试的讨论", "excluded": ["弹幕采集", "标注工具"]},
+  "items": [
+    {"type": "CONFIRMED_DECISION", "text": "用户确认：评论按 BV 号分目录存储"},
+    {"type": "PROPOSAL", "text": "建议用 cursor 分页替代页码分页（用户未确认）"},
+    {"type": "VERIFIED", "text": "WBI 签名单元测试通过", "evidence": "python -m unittest tests.test_bilibili_wbi → OK (12 tests)"},
+    {"type": "UNVERIFIED", "text": "推测 412 错误来自频率限制，未复现"},
+    {"type": "PENDING_TASK", "text": "实现 checkpoint 断点续采"}
+  ],
+  "files_changed": [{"path": "backend/app/adapters/bilibili.py", "change": "新增 reply 分页"}],
+  "tests": [{"command": "python -m unittest tests.test_bilibili_wbi", "result": "OK (12 tests)", "passed": true}],
+  "open_questions": ["是否需要采集楼中楼的全部回复？"],
+  "next_steps_for_receiver": ["改动前先读 docs/DECISIONS.md 的 ADR-xx"]
+}

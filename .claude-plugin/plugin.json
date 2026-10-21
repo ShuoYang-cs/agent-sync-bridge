@@ -1,6 +1,6 @@
 {
   "name": "agent-sync-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "User-controlled context sync between Claude Code and OpenAI Codex: say \"同步给 Codex\" / \"sync to Codex\" and the other agent picks it up on its next turn, with delivery and acknowledgement tracking.",
   "author": { "name": "Shuo Yang", "url": "https://github.com/ShuoYang-cs" },
   "homepage": "https://github.com/ShuoYang-cs/agent-sync-bridge",

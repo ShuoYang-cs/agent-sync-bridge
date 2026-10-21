@@ -124,12 +124,16 @@ def validate(payload: Dict[str, Any], *, mode: str, target: str) -> Dict[str, An
 
 def render(ctx: Dict[str, Any], *, mid: str, source: str, target: str, mode: str,
            project_id: str, user_command: str, created_at: float,
-           branch: str = None, head: str = None) -> str:
+           branch: str = None, head: str = None,
+           source_device: str = None, target_device: str = None) -> str:
+    """`source_device` / `target_device` are device labels, set only for cross-device messages."""
     kind = "同步并交接" if mode == "handoff" else "同步（仅上下文）"
+    src = AGENT_LABELS[source] + (f"（{source_device}）" if source_device else "")
+    dst = AGENT_LABELS[target] + (f"（{target_device}）" if target_device else "")
     lines = [
         f"# 📨 Agent Sync #{mid}：{ctx['title']}",
         "",
-        f"- 方向：{AGENT_LABELS[source]} → {AGENT_LABELS[target]}　类型：{kind}",
+        f"- 方向：{src} → {dst}　类型：{kind}",
         f"- 项目：`{project_id}`" + (f"　分支：`{branch}`" if branch else "") + (f"　HEAD：`{head}`" if head else ""),
         f"- 时间：{iso(created_at)}",
         f"- 用户指令：「{user_command}」",

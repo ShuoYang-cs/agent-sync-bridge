@@ -57,5 +57,54 @@ class RouterCommands(unittest.TestCase):
         self.assertIsNone(detect("同步给 Claude", current_agent="claude"))
 
 
+PEERS = [{"id": "win", "label": "Windows", "platform": "windows"}]
+MAC = {"id": "mac", "label": "Mac", "platform": "macos"}
+
+
+class RouterDevices(unittest.TestCase):
+    def check(self, text, agent, **expect):
+        i = detect(text, current_agent=agent, devices=PEERS, local=MAC)
+        self.assertIsNotNone(i, text)
+        for k, v in expect.items():
+            self.assertEqual(getattr(i, k), v, f"{text}: {k}")
+        return i
+
+    def test_other_computer(self):
+        self.check("同步给 Windows 上的 Claude", "claude", target="claude", device="win", device_status="remote")
+        self.check("同步给 Windows 的 Codex", "claude", target="codex", device="win")
+        self.check("把刚才关于 hook 的讨论同步给另一台电脑的 Claude", "codex", device="win", topic="hook")
+        self.check("sync this to claude on windows", "claude", device="win", mode="sync")
+        self.check("sync to the windows codex", "claude", target="codex", device="win")
+        self.check("同步并交接给 Windows 上的 Codex", "claude", mode="handoff", device="win")
+        self.check("hand off to codex on win", "claude", mode="handoff", device="win")
+        self.check("同步给 Claude（Windows）", "codex", target="claude", device="win")
+        self.check("同步给 Windows 电脑上的 Claude Code", "codex", target="claude", device="win")
+
+    def test_device_only_defaults_to_same_agent(self):
+        self.check("同步给 Windows", "codex", target="codex", device="win", agent_defaulted=True)
+        self.check("把这次修改同步到另一台电脑上", "claude", target="claude", device="win", scope_kind="code_changes")
+
+    def test_device_words_in_scope_stay_local(self):
+        self.check("把 Windows 版的测试结果同步给 Codex", "claude", target="codex", device=None, device_status="local")
+        self.check("同步给 Mac 上的 Codex", "claude", target="codex", device=None, device_status="local")
+        self.assertIsNone(detect("同步给 Mac 上的 Claude", current_agent="claude", devices=PEERS, local=MAC))
+
+    def test_unknown_computer(self):
+        self.check("同步给 Linux 上的 Claude", "codex", device=None, device_status="unresolved", device_word="Linux")
+        i = detect("同步给 Windows 上的 Claude", current_agent="claude")  # remote not configured
+        self.assertEqual((i.device, i.device_status), (None, "unresolved"))
+        two = [{"id": "desk", "label": "Desktop", "platform": "windows"},
+               {"id": "pc2", "label": "Office", "platform": "windows"}]
+        i = detect("同步给 Windows 上的 Claude", current_agent="claude", devices=two, local=MAC)
+        self.assertEqual(i.device_status, "ambiguous")
+        i = detect("同步给 Office 上的 Claude", current_agent="claude", devices=two, local=MAC)
+        self.assertEqual(i.device, "pc2")
+
+    def test_still_not_commands(self):
+        for text in ["Windows 上的 Claude 怎么同步？", "先不要同步给 Windows 上的 Claude",
+                     "把代码 push 到 Windows", "Windows 版同步字幕有 bug"]:
+            self.assertIsNone(detect(text, current_agent="claude", devices=PEERS, local=MAC), text)
+
+
 if __name__ == "__main__":
     unittest.main()

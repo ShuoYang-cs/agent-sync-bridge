@@ -1,3 +1,4 @@
+import json
 import time
 import unittest
 
@@ -97,6 +98,59 @@ class StateMachine(TempHome):
         self.s.ack(m["id"], "codex", "我已理解评论采集方案")
         self.assertEqual(self.s.purge(-1), 1)
         self.assertEqual(self.s.history(None), [])
+
+
+class RemoteMerge(TempHome):
+    """Receipt merge rules on the sender side, without Git."""
+
+    def setUp(self):
+        super().setUp()
+        self.s = Store(device="mac")
+        self.m = self.s.create(project_id="p", project_root="/x", source="codex", target="claude", mode="sync",
+                               title="t", user_command="同步给 Windows 上的 Claude", body_md="b",
+                               context={"title": "t", "summary": "s", "items": [{"type": "PROPOSAL", "text": "x"}]},
+                               target_device="win")
+        self.s.mark_sent([self.m["id"]])
+
+    def tearDown(self):
+        self.s.close()
+        super().tearDown()
+
+    def ev(self, kind, **kw):
+        return {"message_id": self.m["id"], "type": kind, "ts": time.time(), "agent": "claude", **kw}
+
+    def test_outbound_is_not_local(self):
+        self.assertEqual(self.s.inbox("claude", "p"), [])
+        with self.assertRaises(BridgeError):
+            self.s.deliver(self.m["id"], "claude", "claude:s", "hook")
+        self.s.db.execute("UPDATE messages SET expires_at=0 WHERE id=?", (self.m["id"],))
+        self.assertEqual(self.s.expire(), 0)  # the other computer decides when it expires
+
+    def test_only_the_receiver_can_confirm(self):
+        self.assertEqual(self.s.apply_remote_event(self.ev("ACKNOWLEDGED", summary="伪造"), "mac"), "not-allowed")
+        self.assertEqual(self.s.apply_remote_event(self.ev("DELIVERED"), "evil"), "foreign")
+        self.assertEqual(self.s.apply_remote_event(dict(self.ev("DELIVERED"), message_id="0101-deadbeef"), "win"), "orphan")
+        self.assertEqual(self.s.get(self.m["id"])["status"], PENDING)
+
+    def test_merge_rules(self):
+        self.assertEqual(self.s.apply_remote_event(self.ev("RECEIVED"), "win"), "noop")
+        self.assertEqual(self.s.get(self.m["id"])["transport"], "RECEIVED")
+        self.assertEqual(self.s.apply_remote_event(self.ev("DELIVERED"), "win"), "applied")
+        self.assertEqual(self.s.apply_remote_event(self.ev("DELIVERED"), "win"), "noop")
+        self.s.fail(self.m["id"], "发错了")
+        self.assertEqual(self.s.apply_remote_event(self.ev("RETRY"), "win"), "applied")  # either side may reopen
+        self.assertEqual(self.s.get(self.m["id"])["status"], PENDING)
+        self.assertEqual(self.s.apply_remote_event(self.ev("ACKNOWLEDGED", summary="已读"), "win"), "applied")
+        self.assertEqual(self.s.apply_remote_event(self.ev("FAILED", detail="expired"), "win"), "noop")
+        self.assertEqual(self.s.apply_remote_event(self.ev("RETRY"), "win"), "noop")
+        m = self.s.get(self.m["id"])
+        self.assertEqual((m["status"], m["ack_summary"]), (ACKNOWLEDGED, "已读"))
+
+    def test_local_changes_become_receipts(self):
+        self.s.fail(self.m["id"], "发错了")
+        self.s.retry(self.m["id"])
+        kinds = [json.loads(r["payload"])["type"] for r in self.s.unpushed()]
+        self.assertEqual(kinds, ["FAILED", "RETRY"])
 
 
 if __name__ == "__main__":

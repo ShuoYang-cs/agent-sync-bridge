@@ -11,14 +11,17 @@ import shutil
 import subprocess
 from typing import Any, Dict, List, Optional
 
+from . import __version__
+
 MARK = "hook codex"
 
 
 def find_codex() -> Optional[str]:
     if os.environ.get("ASB_CODEX"):
         return os.environ["ASB_CODEX"]
+    exe = "codex.exe" if os.name == "nt" else "codex"
     cands = sorted(glob.glob(os.path.expanduser(
-        "~/.vscode/extensions/openai.chatgpt-*/bin/*/codex")), key=os.path.getmtime)
+        f"~/.vscode/extensions/openai.chatgpt-*/bin/*/{exe}")), key=os.path.getmtime)
     if cands:
         return cands[-1]
     return shutil.which("codex")
@@ -45,7 +48,7 @@ def _rpc(codex: str, requests: List[Dict[str, Any]], timeout: float = 30) -> Dic
                     return msg.get("result")
 
         send({"id": 0, "method": "initialize",
-              "params": {"clientInfo": {"name": "agent-sync-bridge", "version": "0.1.0"}}})
+              "params": {"clientInfo": {"name": "agent-sync-bridge", "version": __version__}}})
         wait(0)
         send({"method": "initialized"})
         for i, r in enumerate(requests, 1):

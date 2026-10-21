@@ -14,8 +14,9 @@ class Installer(TempHome):
     """Runs the real installer against a fake $HOME and checks it is reversible."""
 
     def run_installer(self, *args):
-        env = dict(os.environ, HOME=str(self.home))
-        r = subprocess.run([sys.executable, "-I", INSTALLER, *args], capture_output=True, text=True, env=env)
+        env = dict(os.environ, HOME=str(self.home), USERPROFILE=str(self.home))
+        r = subprocess.run([sys.executable, "-X", "utf8", "-I", INSTALLER, *args], capture_output=True, text=True,
+                           encoding="utf-8", env=env)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return r.stdout
 
@@ -29,7 +30,9 @@ class Installer(TempHome):
         self.run_installer("install")  # idempotent
         s = json.loads(claude.read_text())
         cmds = [h["command"] for g in s["hooks"]["UserPromptSubmit"] for h in g["hooks"]]
-        self.assertEqual(cmds.count(f"{self.home}/.local/bin/asb hook claude"), 1)
+        self.assertEqual(len([c for c in cmds if c.endswith(" hook claude")]), 1)
+        if os.name != "nt":
+            self.assertIn(f"{self.home}/.local/bin/asb hook claude", cmds)
         self.assertIn("echo mine", cmds)
         codex = json.loads((self.home / ".codex/hooks.json").read_text())
         self.assertEqual(len(codex["hooks"]["UserPromptSubmit"]), 1)
@@ -38,7 +41,10 @@ class Installer(TempHome):
         self.assertIn("--from codex --to claude", skill)
         self.assertNotIn("{{", skill)
         self.assertIn("你是 **Claude Code**", (self.home / ".claude/skills/agent-sync/SKILL.md").read_text())
-        self.assertTrue((self.home / ".local/bin/asb").is_symlink())
+        if os.name == "nt":
+            self.assertIn("asb.py", (self.home / ".local/bin/asb.cmd").read_text())
+        else:
+            self.assertTrue((self.home / ".local/bin/asb").is_symlink())
         links = json.loads(Path(os.environ["ASB_HOME"], "projects.json").read_text())
         self.assertEqual(list(links["links"].values()), ["anime"])
 
@@ -48,6 +54,7 @@ class Installer(TempHome):
         self.assertFalse((self.home / ".agents").exists())
         self.assertFalse((self.home / ".claude/skills/agent-sync").exists())
         self.assertFalse((self.home / ".local/bin/asb").exists())
+        self.assertFalse((self.home / ".local/bin/asb.cmd").exists())
 
     def test_does_not_clobber_foreign_skill(self):
         d = self.home / ".claude/skills/agent-sync"
@@ -74,6 +81,23 @@ class PluginPackage(unittest.TestCase):
                          "run: python3 scripts/installer.py render-plugin")
         self.assertIn("${CLAUDE_PLUGIN_ROOT}/bin/asb send --from claude --to codex", rendered)
 
+    def test_windows_skill_avoids_heredoc(self):
+        sys.path.insert(0, str(REPO / "scripts"))
+        import installer
+        cli = "py -3 -X utf8 -I C:/Users/me/agent-sync-bridge/bin/asb.py"
+        win = installer.render_skill("codex", cli, "windows")
+        self.assertIn(f"{cli} send --from codex --to claude", win)
+        self.assertIn("--file", win)
+        self.assertNotIn("<<'JSON'", win)
+        self.assertNotIn("<!--", win)
+        self.assertIn('"title": "Comment Collector 架构定稿"', win)
+        posix = installer.render_skill("codex", "/home/me/.local/bin/asb", "posix")
+        self.assertIn("<<'JSON'", posix)
+        self.assertNotIn("PowerShell 5.1", posix)
+        for h in (f"{cli} hook claude", '"C:/Program Files/Python/python.exe" -X utf8 -I "C:/a b/bin/asb.py" hook codex'):
+            self.assertTrue(installer.is_bridge_hook({"command": h}), h)
+        self.assertFalse(installer.is_bridge_hook({"command": "echo mine"}))
+
     def test_manifests(self):
         plugin = json.loads((REPO / ".claude-plugin/plugin.json").read_text())
         market = json.loads((REPO / ".claude-plugin/marketplace.json").read_text())
@@ -86,3 +110,4 @@ class PluginPackage(unittest.TestCase):
         command = hooks["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
         self.assertEqual(command, '"${CLAUDE_PLUGIN_ROOT}/bin/asb" hook claude')
         self.assertTrue(os.access(REPO / "bin/asb", os.X_OK))
+        self.assertIn(b"\r\n", (REPO / "bin/asb.cmd").read_bytes())

@@ -3,6 +3,7 @@
 Changes (all recorded in ~/.agent-sync-bridge/install-manifest.json, originals
 backed up to ~/.agent-sync-bridge/backups/<timestamp>/):
   ~/.local/bin/asb                       symlink to this repo's bin/asb
+                                         (Windows: small asb / asb.cmd launcher files)
   ~/.claude/skills/agent-sync/SKILL.md   Claude Code skill
   ~/.agents/skills/agent-sync/SKILL.md   Codex skill
   ~/.claude/settings.json                + hooks.UserPromptSubmit entry (asb hook claude)
@@ -15,18 +16,25 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO))
+from asb import paths as asb_paths  # noqa: E402
+
+IS_WINDOWS = os.name == "nt"
 HOME = Path.home()
 DATA = Path(os.environ.get("ASB_HOME") or HOME / ".agent-sync-bridge")
 MANIFEST = DATA / "install-manifest.json"
 MARKER = ".asb-managed"
 
 BIN_LINK = HOME / ".local/bin/asb"
+WIN_SHIMS = {HOME / ".local/bin/asb.cmd": "@{cli} %*\r\n", HOME / ".local/bin/asb": "#!/bin/sh\nexec {cli} \"$@\"\n"}
+SHIM_MARK = "agent-sync-bridge"
 CLAUDE_SETTINGS = HOME / ".claude/settings.json"
 CODEX_HOOKS = HOME / ".codex/hooks.json"
 SKILL_DIRS = {"claude": HOME / ".claude/skills/agent-sync", "codex": HOME / ".agents/skills/agent-sync"}
@@ -39,12 +47,19 @@ HOOK_TARGETS = {
 }
 
 
+def cli() -> str:
+    """How skills and hooks call asb. On Windows `py -3 -X utf8 -I <repo>/bin/asb.py`
+    works the same in Git Bash (Claude Code), PowerShell (Codex) and cmd."""
+    return asb_paths.cli_command() if IS_WINDOWS else str(BIN_LINK)
+
+
 def hook_cmd(agent: str) -> str:
-    return f"{BIN_LINK} hook {agent}"
+    return f"{cli()} hook {agent}"
 
 
 def is_bridge_hook(h: dict) -> bool:
-    return "asb hook " in (h.get("command") or "") or "agent-sync-bridge" in (h.get("command") or "")
+    c = h.get("command") or ""
+    return any(m in c for m in ("asb hook ", "asb.py hook ", 'asb.py" hook ', "agent-sync-bridge"))
 
 
 def load_json(p: Path) -> dict:
@@ -66,7 +81,8 @@ def backup(paths, stamp: str) -> Path:
     d.mkdir(parents=True, exist_ok=True)
     for p in paths:
         if p.exists():
-            shutil.copy2(p, d / (str(p).replace(str(HOME), "HOME").strip("/").replace("/", "__")))
+            name = re.sub(r"[\\/:]+", "__", str(p).replace(str(HOME), "HOME")).strip("_")
+            shutil.copy2(p, d / name)
     return d
 
 
@@ -108,18 +124,23 @@ PLUGIN_SKILL = REPO / "skills/agent-sync/SKILL.md"
 PLUGIN_ASB = "${CLAUDE_PLUGIN_ROOT}/bin/asb"
 
 
-def render_skill(agent: str, asb: str = None) -> str:
+def render_skill(agent: str, asb: str = None, platform: str = None) -> str:
     other = "codex" if agent == "claude" else "claude"
+    platform = platform or ("windows" if IS_WINDOWS else "posix")
     t = (REPO / "templates/SKILL.template.md").read_text(encoding="utf-8")
-    for k, v in {"{{AGENT}}": agent, "{{OTHER}}": other, "{{AGENT_LABEL}}": LABELS[agent],
-                 "{{OTHER_LABEL}}": LABELS[other], "{{ASB}}": asb or str(BIN_LINK)}.items():
+    # keep the <!-- if:<platform> --> blocks for this platform, drop the others
+    t = re.sub(r"<!-- if:(\w+) -->\n(.*?)<!-- endif -->\n",
+               lambda m: m.group(2) if m.group(1) == platform else "", t, flags=re.S)
+    payload = (REPO / "templates/payload-example.json").read_text(encoding="utf-8").rstrip("\n")
+    for k, v in {"{{PAYLOAD}}": payload, "{{AGENT}}": agent, "{{OTHER}}": other, "{{AGENT_LABEL}}": LABELS[agent],
+                 "{{OTHER_LABEL}}": LABELS[other], "{{ASB}}": asb or cli()}.items():
         t = t.replace(k, v)
     return t
 
 
 def render_plugin(a) -> int:
     PLUGIN_SKILL.parent.mkdir(parents=True, exist_ok=True)
-    PLUGIN_SKILL.write_text(render_skill("claude", PLUGIN_ASB), encoding="utf-8")
+    PLUGIN_SKILL.write_text(render_skill("claude", PLUGIN_ASB, "posix"), encoding="utf-8")
     print(f"✓ {PLUGIN_SKILL.relative_to(REPO)}")
     return 0
 
@@ -137,7 +158,16 @@ def install(a) -> int:
     manifest = load_json(MANIFEST) or {"installs": []}
     log = {"at": stamp, "backup_dir": str(bdir), "repo": str(REPO), "components": sorted(only), "steps": []}
 
-    if "cli" in only:
+    if "cli" in only and IS_WINDOWS:
+        for shim, body in WIN_SHIMS.items():
+            if shim.exists() and SHIM_MARK not in shim.read_text(encoding="utf-8", errors="replace"):
+                print(f"✗ {shim} 已存在且不是本工具写的，跳过")
+                continue
+            shim.parent.mkdir(parents=True, exist_ok=True)
+            shim.write_bytes(body.format(cli=cli()).encode("utf-8"))
+            log["steps"].append(f"shim {shim}")
+            print(f"✓ CLI       {shim}")
+    elif "cli" in only:
         BIN_LINK.parent.mkdir(parents=True, exist_ok=True)
         target = REPO / "bin/asb"
         if BIN_LINK.exists() and not BIN_LINK.is_symlink():
@@ -211,6 +241,10 @@ def uninstall(a) -> int:
     if BIN_LINK.is_symlink() and Path(os.readlink(BIN_LINK)) == REPO / "bin/asb":
         BIN_LINK.unlink()
         print(f"✓ 删除 {BIN_LINK}")
+    for shim in WIN_SHIMS:
+        if shim.is_file() and not shim.is_symlink() and SHIM_MARK in shim.read_text(encoding="utf-8", errors="replace"):
+            shim.unlink()
+            print(f"✓ 删除 {shim}")
     print("ℹ Codex 的 hooks.state 信任记录（~/.codex/config.toml）只保存 hash，hook 删除后不会再运行，可在 Codex /hooks 中清理。")
     if a.purge_data:
         shutil.rmtree(DATA, ignore_errors=True)

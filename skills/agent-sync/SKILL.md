@@ -1,12 +1,12 @@
 ---
 name: agent-sync
-description: Agent Sync Bridge between Claude Code and Codex. Use ONLY when the user explicitly asks to sync or hand off context to the other agent ("同步给 Codex", "把…同步给…", "把结论交给/发给 Codex", "同步并交接给…", "只同步…的结论", "sync/hand off to codex"), asks to view sync inbox/history ("查看待接收消息", "查看同步历史", "同步状态"), or when an [Agent Sync Bridge] context block asks you to acknowledge a message. Never use for ordinary chat or for sync-vs-async programming questions.
+description: Agent Sync Bridge between Claude Code and Codex, on this computer or another one (Mac ↔ Windows). Use ONLY when the user explicitly asks to sync or hand off context to another agent ("同步给 Codex", "同步给 Windows 上的 Claude", "同步给另一台电脑", "把…同步给…", "把结论交给/发给 Codex", "同步并交接给…", "只同步…的结论", "sync/hand off to codex", "sync to claude on windows"), asks to view sync inbox/history/status ("查看待接收消息", "查看同步历史", "同步状态"), asks to set up cross-computer sync ("asb remote setup", "跨电脑同步"), or when an [Agent Sync Bridge] context block asks you to acknowledge a message. Never use for ordinary chat, for sync-vs-async programming questions, or for syncing code files (that is Git).
 ---
 
 # Agent Sync Bridge
 
 你是 **Claude Code**（agent id `claude`），对端是 **Codex**（`codex`）。
-CLI：`${CLAUDE_PLUGIN_ROOT}/bin/asb`（本机 SQLite 队列，数据只在本机，不进 Git）。
+CLI：`${CLAUDE_PLUGIN_ROOT}/bin/asb`（本机 SQLite 队列，不进项目仓库）。发给另一台电脑时，消息经用户自己的 Git 信箱仓库传过去（见 D 节）。
 
 ## 硬规则
 
@@ -16,13 +16,14 @@ CLI：`${CLAUDE_PLUGIN_ROOT}/bin/asb`（本机 SQLite 队列，数据只在本�
 4. **只同步用户指定的范围。** 其他主题不要混进来，只在 `scope.excluded` 写出被排除的主题名（不写其内容）。
 5. **范围不清就先问。** 用户没指定范围、而本会话有多个不相关主题时，先问用户要同步哪部分，暂不发送。只有一个明显主题时直接同步，并在 `scope.included` 写明。
 6. **如实报告状态。** `PENDING` 只是“已写入队列”，不能说成“对方已收到/已理解”。
-7. 不要放入密钥、token、`.env` 内容或个人隐私。
+7. 不要放入密钥、token、`.env` 内容或个人隐私。跨电脑消息会以明文存在用户的信箱仓库里。
 
-## A. 发送（用户说「同步给 Codex」「同步并交接给 Codex」等）
+## A. 发送（用户说「同步给 Codex」「同步给 Windows 上的 Claude」「同步并交接给 Codex」等）
 
-1. **确定参数。** 如果上下文里有 `[Agent Sync Bridge] 用户发出了显式同步指令` 的提示，就用它给出的目标、模式和范围。
+1. **确定参数。** 如果上下文里有 `[Agent Sync Bridge] 用户发出了显式同步指令` 的提示，就用它给出的目标、电脑、模式和范围。
    - 「同步」→ `--mode sync`：只传上下文，**不**分派任务，不得带 `handoff` 字段。
-   - 「同步并交接」「交接给」→ `--mode handoff`：必须带 `handoff`（owner = `codex`、goal、acceptance_criteria）。
+   - 「同步并交接」「交接给」→ `--mode handoff`：必须带 `handoff`（owner = 目标 Agent 的 id、goal、acceptance_criteria）。
+   - 目标在另一台电脑（「Windows 上的 Claude」「另一台电脑的 Codex」）→ 加 `--device <设备 ID>`，ID 用提示里给的，或运行 `${CLAUDE_PLUGIN_ROOT}/bin/asb remote devices` 查。另一台电脑上的同一种 Agent 也可以是目标（例如 `--to claude --device win`）。
 2. **回顾本会话，挑出与范围相关的内容并分类：**
 
    | type | 何时使用 |
@@ -35,7 +36,8 @@ CLI：`${CLAUDE_PLUGIN_ROOT}/bin/asb`（本机 SQLite 队列，数据只在本�
    | `PENDING_TASK` | 尚未完成的待办 |
 
    同步代码修改时，先运行 `git status --short` 和 `git diff --stat`，用真实输出核对 `files_changed`。`tests` 只写本会话实际运行过的命令。
-3. **发送。** 用 heredoc 把 JSON 从 stdin 传入，`--user-command` 原样填用户的同步指令：
+3. **发送。**`--user-command` 原样填用户的同步指令。
+   用 heredoc 把 JSON 从 stdin 传入：
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/bin/asb send --from claude --to codex --mode sync --user-command '把刚才关于 Comment Collector 的讨论同步给 Codex' <<'JSON'
@@ -68,11 +70,14 @@ JSON
 4. **回复用户**（根据 send 的真实输出）：
    > 已整理当前讨论，并将消息写入 Codex 的待接收队列：#ID「标题」（PENDING）。包含：N 条已确认决定、M 条建议……；已排除：……。Codex 下一次对话时会自动加载，确认后状态变为 ACKNOWLEDGED，可以说「查看同步历史」查询。
 
+   跨电脑时按输出区分：「已上传到同步信箱，Windows 还没有拉取」和「已写入本机待发队列，但上传失败（联网后自动补发）」是两种不同的结果，照实说；都不等于对方已收到或已读。
+
    如果输出是“相同内容的消息已存在”，就告诉用户已有消息的 ID 和状态，不要重复发送。
 
 ## B. 接收（上下文出现 `[Agent Sync Bridge]` 消息，或用户说「查看待接收消息」）
 
 1. 如果消息没有被注入上下文：先运行 `${CLAUDE_PLUGIN_ROOT}/bin/asb inbox --agent claude`，再逐条运行 `${CLAUDE_PLUGIN_ROOT}/bin/asb show <ID> --agent claude` 阅读全文。
+   来自另一台电脑的消息也一样处理，方向一行会写明电脑（例如「Codex（Mac）→ Claude Code（Windows）」）。确认后回执会自动传回那台电脑。
 2. 读完后确认（一条一次，摘要用你自己的话写）：
    `${CLAUDE_PLUGIN_ROOT}/bin/asb ack <ID> --agent claude --summary "<一句话复述你理解的要点>"`
 3. 在回复开头用一行告诉用户：已接收 #ID「标题」（来自 Codex），已确认。
@@ -92,3 +97,16 @@ JSON
 | DELIVERED | 已注入对方会话上下文（或对方运行了 `show`），等待对方确认 |
 | ACKNOWLEDGED | 对方读完并用复述完成确认 |
 | FAILED | 被拒收或超过保留期（30 天）仍未确认，可以 `retry` |
+
+跨电脑消息在发送方还会显示传输进度：已写入本机待发队列 → 已上传到同步信箱 → 对方电脑已收到 → DELIVERED → ACKNOWLEDGED。
+
+## D. 跨电脑同步（Git 信箱）
+
+- 状态：`${CLAUDE_PLUGIN_ROOT}/bin/asb remote status`；立即同步：`${CLAUDE_PLUGIN_ROOT}/bin/asb remote sync`；设备列表：`${CLAUDE_PLUGIN_ROOT}/bin/asb remote devices`。
+- 第一次设置由用户决定信箱仓库（建议新建一个**空的私有**仓库；也可以是局域网另一台电脑上通过 SSH 访问的仓库）：
+  - 第一台电脑：`${CLAUDE_PLUGIN_ROOT}/bin/asb remote setup <仓库地址> --device mac`
+  - 第二台电脑：`${CLAUDE_PLUGIN_ROOT}/bin/asb remote setup <仓库地址> --device win --pair-code <配对码>`
+- **配对码相当于密码。** 不要在聊天里显示或复述；请用户在自己的终端运行 `${CLAUDE_PLUGIN_ROOT}/bin/asb remote pair-code` 查看，再在另一台电脑上输入。
+- 两台电脑要用同一个项目 ID。项目有 git origin 时自动一致；没有时 send 会报错并给出 `${CLAUDE_PLUGIN_ROOT}/bin/asb project link <路径> <ID>`，两台电脑各自关联到同一个 ID（征得用户同意后再运行）。
+- 代码不经过信箱：消息里只写分支、commit 和相对路径，代码让用户用 Git 推送/拉取。
+- send 报“上传失败”时消息已安全地留在本机待发队列，之后每次对话的 hook 都会自动补发。如果错误像是网络或写入被你的命令沙箱拦截，可以在沙箱外重新运行 `${CLAUDE_PLUGIN_ROOT}/bin/asb remote sync`。

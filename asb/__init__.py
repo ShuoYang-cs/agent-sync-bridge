@@ -1,6 +1,7 @@
-"""Agent Sync Bridge: user-controlled context sync between Claude Code and Codex."""
+"""Agent Sync Bridge: user-controlled context sync between Claude Code and Codex,
+on one computer or across computers (Git mailbox)."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 AGENTS = ("claude", "codex")
 
